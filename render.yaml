@@ -1,0 +1,22 @@
+services:
+  - type: worker
+    name: zelda-restock-tracker
+    runtime: python
+    plan: 0.5c-512mb
+    region: oregon
+    branch: main
+    buildCommand: python -m unittest -v
+    startCommand: python -u tracker.py --notify
+    autoDeployTrigger: commit
+    maxShutdownDelaySeconds: 120
+    disk:
+      name: stock-history
+      mountPath: /var/data
+      sizeGB: 1
+    envVars:
+      - key: NTFY_TOPIC
+        sync: false
+      - key: STATE_PATH
+        value: /var/data/stock.sqlite3
+      - key: POLL_SECONDS
+        value: "120"
