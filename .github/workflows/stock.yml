@@ -1,0 +1,75 @@
+name: Zelda stock alerts
+on:
+  schedule:
+    - cron: '2-57/5 * * * *'
+  workflow_dispatch:
+permissions:
+  contents: write
+  actions: write
+concurrency:
+  group: zelda-stock-monitor
+  cancel-in-progress: false
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 4
+    env:
+      NTFY_TOPIC: ${{ secrets.NTFY_TOPIC }}
+      GH_TOKEN: ${{ github.token }}
+      STATE_PATH: data/stock.sqlite3
+    steps:
+      - uses: actions/checkout@v4
+      - name: Require notification setup
+        run: |
+          if [ -z "$NTFY_TOPIC" ]; then
+            echo 'Add the NTFY_TOPIC repository Actions secret before running this workflow.'
+            exit 1
+          fi
+      - name: Restore durable state
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          if git ls-remote --exit-code origin refs/heads/tracker-state; then
+            git fetch origin tracker-state
+            git worktree add state-store FETCH_HEAD
+            git -C state-store switch -C tracker-state
+          else
+            status=$?
+            if [ "$status" -ne 2 ]; then exit "$status"; fi
+            git worktree add --detach state-store HEAD
+            git -C state-store switch --orphan tracker-state
+          fi
+          mkdir -p data
+          if [ -f state-store/stock.sqlite3 ]; then cp state-store/stock.sqlite3 data/stock.sqlite3; fi
+      - name: Check seven-day window
+        id: window
+        run: |
+          python - <<'PY'
+          import os, time
+          from pathlib import Path
+          start = Path('state-store/started.txt')
+          if not start.exists():
+              start.write_text(str(time.time()))
+          active = time.time() < float(start.read_text()) + 7 * 86400
+          with open(os.environ['GITHUB_OUTPUT'], 'a') as output:
+              output.write(f'active={str(active).lower()}\n')
+          PY
+      - name: Disable schedule after one week
+        if: steps.window.outputs.active == 'false'
+        run: gh api --method PUT "repos/$GITHUB_REPOSITORY/actions/workflows/stock.yml/disable"
+      - name: Run tests
+        if: steps.window.outputs.active == 'true'
+        run: python -m unittest -v
+      - name: Check stock and send alerts
+        if: steps.window.outputs.active == 'true'
+        run: python -u tracker.py --once --notify
+      - name: Save stock history
+        if: always() && steps.window.outputs.active == 'true'
+        run: |
+          if [ -f data/stock.sqlite3 ]; then cp data/stock.sqlite3 state-store/stock.sqlite3; fi
+          git -C state-store add started.txt
+          if [ -f state-store/stock.sqlite3 ]; then git -C state-store add stock.sqlite3; fi
+          if ! git -C state-store diff --cached --quiet; then
+            git -C state-store commit -m 'Save stock observation state'
+            git -C state-store push origin HEAD:refs/heads/tracker-state
+          fi
