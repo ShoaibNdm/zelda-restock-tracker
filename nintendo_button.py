@@ -1,6 +1,7 @@
 """Read Nintendo's visible purchase button without adding anything to a cart."""
 import decimal
 import re
+import logging
 
 
 def check_button(listing, metadata):
@@ -20,6 +21,9 @@ def check_button(listing, metadata):
                 buttons = page.get_by_role('button', name=re.compile(r'^Add to cart$', re.I))
                 visible = [button for button in buttons.all() if button.is_visible()]
                 if len(visible) != 1:
+                    labels = page.locator('button, [role="button"]').all_text_contents()
+                    logging.warning('Nintendo button check unresolved for %s; visible matches=%s; page title=%r; control labels=%r', listing['id'], len(visible), page.title(), [label.strip()[:120] for label in labels][:40])
+                    print(f"::warning::Nintendo button check unresolved for {listing['id']}")
                     return dict(metadata, button_status='unknown', button_reason='No unique visible Add to cart button')
                 button = visible[0]
                 color = button.evaluate('(element) => getComputedStyle(element).backgroundColor')
@@ -31,4 +35,6 @@ def check_button(listing, metadata):
             finally:
                 browser.close()
     except Exception as error:
+        logging.warning('Nintendo browser check failed for %s (%s)', listing['id'], type(error).__name__)
+        print(f"::warning::Nintendo browser check failed for {listing['id']}")
         return dict(metadata, button_status='unknown', button_reason=type(error).__name__)
