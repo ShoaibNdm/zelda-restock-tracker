@@ -12,11 +12,12 @@ concurrency:
 jobs:
   check:
     runs-on: ubuntu-latest
-    timeout-minutes: 4
+    timeout-minutes: 8
     env:
       NTFY_TOPIC: ${{ secrets.NTFY_TOPIC }}
       GH_TOKEN: ${{ github.token }}
       STATE_PATH: data/stock.sqlite3
+      NINTENDO_BUTTON_CHECK: '1'
     steps:
       - uses: actions/checkout@v4
       - name: Require notification setup
@@ -60,6 +61,11 @@ jobs:
       - name: Run tests
         if: steps.window.outputs.active == 'true'
         run: python -m unittest -v
+      - name: Install browser for Nintendo button checks
+        if: steps.window.outputs.active == 'true'
+        run: |
+          pip install playwright==1.58.0
+          python -m playwright install --with-deps chromium
       - name: Check stock and send alerts
         if: steps.window.outputs.active == 'true'
         run: python -u tracker.py --once --notify
