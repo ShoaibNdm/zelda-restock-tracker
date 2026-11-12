@@ -103,7 +103,11 @@ def check(listing):
             body = response.read(5_000_001)
             if len(body) > 5_000_000:
                 return {'status': 'unknown', 'reason': 'Response exceeds size limit'}
-        return inspect(body.decode('utf-8', errors='replace'), listing)
+        result = inspect(body.decode('utf-8', errors='replace'), listing)
+        if listing['store'] == 'Nintendo Store' and os.environ.get('NINTENDO_BUTTON_CHECK') == '1':
+            from nintendo_button import check_button
+            return check_button(listing, result)
+        return result
     except Exception as error:
         return {'status': 'unknown', 'reason': type(error).__name__}
 
